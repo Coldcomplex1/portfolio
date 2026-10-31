@@ -1,10 +1,11 @@
-import { REDUCE, clamp, sat } from './util.js';
+import { REDUCE } from './util.js';
 import { grainDataURL } from './textures.js';
 
 /* =====================================================================
-   Page wiring: word masks, reveals, nav, the chapter sheet, the rail,
-   the vertical chapter word, the floor meter, and the map from scroll
-   position to a place on the journey.
+   Page wiring: word masks, reveals, the vertical chapter word, and the map
+   from scroll position to a place on the camera's path. Each element with
+   a data-stop is pinned to that stop, and sections that are still locked
+   take up no room, so the page ends at the round in play.
    ===================================================================== */
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -14,6 +15,7 @@ export function initUI() {
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
   $('#grain').style.backgroundImage = `url(${grainDataURL()})`;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
   /* word-level masks let every display heading arrive at a reading pace */
   for (const el of $$('.split')) {
@@ -24,9 +26,8 @@ export function initUI() {
       .join(' ');
   }
 
-  /* the hero arrives in order once the page is up */
-  const heroSeq = $$('#hero .reveal, #hero .split');
-  heroSeq.forEach((el, i) => el.style.setProperty('--d', `${0.25 + i * 0.12}s`));
+  /* the opening arrives in order once the page is up */
+  $$('#start .reveal, #start .split').forEach((el, i) => el.style.setProperty('--d', `${0.25 + i * 0.12}s`));
 
   const io = new IntersectionObserver((es) => {
     for (const e of es) {
@@ -34,70 +35,22 @@ export function initUI() {
       e.target.classList.add('in');
       io.unobserve(e.target);
     }
-  }, { rootMargin: '0px 0px -10% 0px', threshold: 0.04 });
+  }, { rootMargin: '0px 0px -6% 0px', threshold: 0.04 });
   for (const el of $$('.reveal, .split')) io.observe(el);
 
-  /* honors light up as they pass the middle of the screen */
-  const honors = $$('.honor');
-  const hio = new IntersectionObserver((es) => {
-    for (const e of es) e.target.classList.toggle('on', e.isIntersecting);
-  }, { rootMargin: '-40% 0px -40% 0px' });
-  honors.forEach((li) => hio.observe(li));
-
-  /* ------------------------------------------------------------ the sheet */
-  const burger = $('#burger'), sheet = $('#sheet');
-  const setSheet = (open) => {
-    burger.setAttribute('aria-expanded', String(open));
-    burger.setAttribute('aria-label', open ? 'Close the chapter menu' : 'Open the chapter menu');
-    if (open) {
-      sheet.hidden = false;
-      requestAnimationFrame(() => sheet.classList.add('open'));
-      $('a', sheet).focus({ preventScroll: true });
-    } else {
-      sheet.classList.remove('open');
-      setTimeout(() => { if (!sheet.classList.contains('open')) sheet.hidden = true; }, 500);
-    }
-  };
-  burger.addEventListener('click', () => setSheet(burger.getAttribute('aria-expanded') !== 'true'));
-  sheet.addEventListener('click', (e) => { if (e.target.closest('a')) setSheet(false); });
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !sheet.hidden) { setSheet(false); burger.focus(); }
-  });
-
   /* ------------------------------------------------------------ chapters */
-  const chapters = ['hero', 'origin', 'research', 'leadership', 'honors', 'contact'].map((id) => $('#' + id));
-  const navLinks = $$('.nav-links a'), railLinks = $$('#rail a');
   const vword = $('#vword'), vMain = $('.vword-main', vword), vGloss = $('.vword-gloss', vword);
-  const nav = $('#nav'), hud = $('#hud'), fl = $('#fl'), alt = $('#alt');
-  const hudFl = $('[data-fl]', hud), hudAlt = $('[data-alt]', hud);
-  let active = -1, lastY = scrollY, swapT = 0;
-
+  let active = null, swapT = 0;
   const top = (el) => el.getBoundingClientRect().top + scrollY;
+  const shown = (s) => $$(s).filter((el) => el.offsetParent !== null);
 
-  /* scroll → journey progress. Each stop holds while its chapter is read,
-     then the camera travels while the next one comes up. In the climb, each
-     honor is pinned to its floor: when it crosses the middle of the screen,
-     the meter reads exactly the floor on its tag. */
-  let breaks = [[0, 0], [1, 1]];
+  /* scroll → progress along the camera's path, one straight run between stops */
+  let breaks = [[0, 0], [1, 0]];
   function measure() {
     const vh = innerHeight;
-    const B = [[0, 0]];
-    const hold = (el, k) => {
-      const t = top(el), h = el.offsetHeight;
-      B.push([t - vh * 0.35, k]);
-      B.push([Math.max(t - vh * 0.35 + 1, t + h - vh * 0.95), k + 0.08]);
-    };
-    hold(chapters[1], 1);
-    hold(chapters[2], 2);
-    hold(chapters[3], 3);
-    B.push([top(chapters[4]), 4]);
-    for (const li of honors) {
-      const floor = parseFloat(li.dataset.floor || '1');
-      B.push([top(li) + li.offsetHeight / 2 - vh / 2, 4 + (floor - 1) / 80]);
-    }
-    B.push([top(chapters[5]) - vh * 0.2, 6]);
+    const B = shown('[data-stop]').map((el) => [Math.max(0, top(el) - vh * 0.14), parseFloat(el.dataset.stop)]);
     for (let i = 1; i < B.length; i++) if (B[i][0] <= B[i - 1][0]) B[i][0] = B[i - 1][0] + 1;
-    breaks = B;
+    breaks = B.length > 1 ? B : [[0, B[0]?.[1] ?? 0], [1, B[0]?.[1] ?? 0]];
   }
 
   function progress(y = scrollY) {
@@ -112,30 +65,20 @@ export function initUI() {
     return B[B.length - 1][1];
   }
 
-  function setActive(i) {
-    if (i === active) return;
-    active = i;
-    navLinks.forEach((a) => a.classList.toggle('on', a.dataset.sec === chapters[i].id));
-    railLinks.forEach((a, k) => a.classList.toggle('on', k === i));
-    const sec = chapters[i];
-    clearTimeout(swapT);
-    vword.classList.add('swap');
-    swapT = setTimeout(() => {
-      vMain.textContent = sec.dataset.word;
-      vGloss.textContent = sec.dataset.gloss;
-      vword.classList.remove('swap');
-    }, REDUCE ? 0 : 380);
-  }
-
   function onScroll() {
-    const y = scrollY, vh = innerHeight;
-    let i = 0;
-    chapters.forEach((el, k) => { if (top(el) - vh * 0.5 <= y) i = k; });
-    setActive(i);
-    /* the nav steps aside while reading down, returns on the way back up */
-    if (y > lastY + 6 && y > vh * 0.7 && sheet.hidden) nav.classList.add('hide');
-    else if (y < lastY - 6 || y < vh * 0.7) nav.classList.remove('hide');
-    lastY = y;
+    const vh = innerHeight;
+    let sec = null;
+    for (const el of shown('[data-word]')) if (top(el) - vh * 0.5 <= scrollY) sec = el;
+    if (sec && sec !== active) {
+      active = sec;
+      clearTimeout(swapT);
+      vword.classList.add('swap');
+      swapT = setTimeout(() => {
+        vMain.textContent = sec.dataset.word;
+        vGloss.textContent = sec.dataset.gloss;
+        vword.classList.remove('swap');
+      }, REDUCE ? 0 : 380);
+    }
   }
   addEventListener('scroll', onScroll, { passive: true });
 
@@ -143,31 +86,35 @@ export function initUI() {
   onScroll();
   addEventListener('resize', measure);
   document.fonts?.ready?.then(measure);
-  new ResizeObserver(() => measure()).observe(document.body);
+  new ResizeObserver(() => { measure(); onScroll(); }).observe(document.body);
 
-  let lastFloor = -1, lastAlt = -1;
+  /* the page moving down by itself: slow, and the visitor can always take over */
+  let glide = 0;
+  const stopGlide = () => { glide = 0; };
+  addEventListener('wheel', stopGlide, { passive: true });
+  addEventListener('touchstart', stopGlide, { passive: true });
+  function glideTo(el, { ms = 1900, offset = 0.06 } = {}) {
+    return new Promise((done) => {
+      const y0 = scrollY, y1 = Math.max(0, top(el) - innerHeight * offset);
+      if (REDUCE) { window.scrollTo({ top: y1, behavior: 'instant' }); done(); return; }
+      const id = ++glide + 1, t0 = performance.now();
+      glide = id;
+      const step = (now) => {
+        if (glide !== id) { done(); return; }
+        const t = Math.min(1, (now - t0) / ms), e = t * t * t * (t * (t * 6 - 15) + 10);
+        window.scrollTo({ top: y0 + (y1 - y0) * e, behavior: 'instant' });
+        if (t < 1) requestAnimationFrame(step); else done();
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
   return {
     measure,
     progress,
+    glideTo,
     update(state) {
-      if (state.floor !== lastFloor || state.alt !== lastAlt) {
-        lastFloor = state.floor; lastAlt = state.alt;
-        const f = String(state.floor).padStart(2, '0');
-        fl.textContent = f; hudFl.textContent = f;
-        alt.textContent = state.alt; hudAlt.textContent = state.alt;
-      }
-      hud.classList.toggle('on', state.p > 3.9 && state.p < 5.6);
-      document.documentElement.classList.toggle('deep', state.p > 0.55 && state.p < 5.75);
-    },
-    /* the page still keeps its meter when there is no 3-D world */
-    staticMeter() {
-      const tick = () => {
-        const p = progress();
-        const c = sat(p - 4);
-        this.update({ p, floor: Math.round(1 + 80 * c), alt: Math.round(461 * c) });
-      };
-      addEventListener('scroll', tick, { passive: true });
-      tick();
+      document.documentElement.classList.toggle('deep', state.p > 0.2);
     },
   };
 }

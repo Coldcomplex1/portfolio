@@ -4,22 +4,18 @@ import { FOG, FOG_GLSL, HASH_GLSL, fogUniforms } from './fog.js';
 import { time, hdr, lightMaterial, pointScale } from './lights.js';
 import { mulberry32, clamp, lerp } from '../util.js';
 import { waterNormalTexture, hazeTexture } from '../textures.js';
+import { SAIGON } from '../data/saigon.js';
 
 /* ------------------------------------------------------------ the course of the river */
-/* Upstream runs toward −z. The landmarks stand on the right bank (+x side),
-   so the camera can keep to the left of the water and look across at them. */
-const CTRL = [
-  [-6, 330], [-4, 160], [0, 0], [6, -150], [24, -280], [30, -390], [16, -500],
-  [-6, -600], [-14, -700], [-2, -810], [20, -910], [26, -1040], [-8, -1300],
-  [-50, -1650], [-90, -2150],
-];
-const curve = new THREE.CatmullRomCurve3(CTRL.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
-curve.arcLengthDivisions = 2000;
-const SEG = 4096;
-const LEN = curve.getLength();
-const PX = new Float32Array(SEG + 1), PZ = new Float32Array(SEG + 1);
+/* The real river, traced down the middle of its OpenStreetMap outline by
+   tools/build_map.py. One unit is ten metres, north is −z, east is +x. Going
+   upstream, District 1 and Bình Thạnh are on the left and Thủ Thiêm is on the
+   right, the way they are on any map of Saigon. */
+const STEP = 4;
+const R = SAIGON.river, SEG = R.length / 3 - 1, LEN = SEG * STEP;
+const PX = new Float32Array(SEG + 1), PZ = new Float32Array(SEG + 1), HW = new Float32Array(SEG + 1);
 const TX = new Float32Array(SEG + 1), TZ = new Float32Array(SEG + 1);
-curve.getSpacedPoints(SEG).forEach((p, i) => { PX[i] = p.x; PZ[i] = p.z; });
+for (let i = 0; i <= SEG; i++) { PX[i] = R[i * 3]; PZ[i] = R[i * 3 + 1]; HW[i] = R[i * 3 + 2]; }
 for (let i = 0; i <= SEG; i++) {
   const a = Math.max(0, i - 1), b = Math.min(SEG, i + 1);
   const dx = PX[b] - PX[a], dz = PZ[b] - PZ[a], l = Math.hypot(dx, dz) || 1;
@@ -29,8 +25,11 @@ for (let i = 0; i <= SEG; i++) {
 const F = {};
 export const RIVER = {
   len: LEN,
-  /* half-width, in units of ten metres: the river runs 340 to 520 m wide */
-  hw: (d) => 21 + 3 * Math.sin(d * 0.011) + 2 * Math.sin(d * 0.029 + 1.3),
+  /* half-width: the river runs about 300 m wide through the city */
+  hw(d) {
+    const u = clamp(d / LEN, 0, 1) * SEG, i = Math.min(SEG - 1, Math.floor(u));
+    return lerp(HW[i], HW[i + 1], u - i);
+  },
   /* centre, tangent (upstream) and right-hand normal at distance d */
   frame(d, out = F) {
     const u = clamp(d / LEN, 0, 1) * SEG;
@@ -41,7 +40,7 @@ export const RIVER = {
     const l = Math.hypot(tx, tz) || 1;
     out.tx = tx / l; out.tz = tz / l;
     out.rx = -out.tz; out.rz = out.tx;
-    out.hw = RIVER.hw(d);
+    out.hw = lerp(HW[i], HW[i + 1], f);
     out.d = d;
     return out;
   },
@@ -49,24 +48,25 @@ export const RIVER = {
     const f = RIVER.frame(d, {});
     return v.set(f.x + f.rx * lat, y, f.z + f.rz * lat);
   },
-  dAtZ(z) {
+  /* the nearest place on the river to a point on the map */
+  dAt(x, z) {
     let best = 0, bd = Infinity;
     for (let i = 0; i <= SEG; i++) {
-      const e = Math.abs(PZ[i] - z);
+      const e = (PX[i] - x) ** 2 + (PZ[i] - z) ** 2;
       if (e < bd) { bd = e; best = i; }
     }
-    return (best / SEG) * LEN;
+    return best * STEP;
   },
 };
 
-/* where the journey stops, as distances along the river */
+/* where the landmarks stand, as distances along the river */
+const along = (k) => RIVER.dAt(SAIGON.sites[k].x, SAIGON.sites[k].z);
 export const SITES = {
-  hero: RIVER.dAtZ(-14),
-  phuMy: RIVER.dAtZ(-150),
-  nhaRong: RIVER.dAtZ(-392),
-  bitexco: RIVER.dAtZ(-602),
-  baSon: RIVER.dAtZ(-706),
-  l81: RIVER.dAtZ(-904),
+  phuMy: along('phuMy'),
+  nhaRong: along('nhaRong'),
+  bitexco: along('bitexco'),
+  baSon: along('baSon'),
+  l81: along('l81'),
 };
 
 export const BANK_Y = 0.35;
@@ -80,51 +80,26 @@ const GROUND_VS = /* glsl */ `
     gl_Position = projectionMatrix * viewMatrix * wp;
   }`;
 
-/* The city floor: a street grid with sodium lamps and a few avenues of
-   moving traffic. From the river it is a sliver; from the top of the tower
-   it is the whole of Saigon at night. */
+/* The city floor: every real street of the map, painted into one texture by
+   the city. From the river it is a sliver; from high up it is the whole of
+   Saigon at night. Past the edge of the map it fades into its own glow. */
 const GROUND_FS = /* glsl */ `
-  uniform float uTime;
+  uniform sampler2D tCity;
+  uniform vec4 uCity;
   uniform vec3 uFogColor;
   uniform float uFogDensity;
   varying vec3 vWorld;
   ${FOG_GLSL}
   ${HASH_GLSL}
-  float line(float d, float w, float aa) { return 1.0 - smoothstep(w - aa, w + aa, d); }
   void main() {
-    vec2 p = vWorld.xz;
-    float a = 0.33;
-    vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * p;
-    vec2 cell = q / 7.5;
-    vec2 id = floor(cell), f = fract(cell);
-    vec2 aa = fwidth(q) * 0.75;
-    vec2 de = min(f, 1.0 - f) * 7.5;                 /* distance to the street centre lines */
-    /* not every block edge is a street: merged blocks break up the lattice */
-    vec2 bid = id + step(0.5, f);
-    float keepX = step(0.3, hash12(vec2(bid.x, id.y) + 7.1));
-    float keepY = step(0.3, hash12(vec2(id.x, bid.y) + 3.7));
-    float district = smoothstep(0.25, 0.65, vnoise(p * 0.006 + 3.1));
-    float park = step(0.86, hash12(id * 0.37 + 2.0));
-    float street = max(line(de.x, 0.32, aa.x) * keepX, line(de.y, 0.32, aa.y) * keepY);
-    /* every fourth street is an avenue */
-    vec2 av = abs(fract(q / 30.0) - 0.5) * 30.0;
-    float avenue = max(line(av.x, 0.55, aa.x), line(av.y, 0.55, aa.y));
-    /* lamps every 1.9 units along the streets */
-    vec2 lp = abs(fract(q / 2.4) - 0.5) * 2.4, lid = floor(q / 2.4);
-    float lampX = line(de.x, 0.11, aa.x) * line(lp.y, 0.11, aa.y) * keepX * step(0.22, hash12(lid + 1.3));
-    float lampY = line(de.y, 0.11, aa.y) * line(lp.x, 0.11, aa.x) * keepY * step(0.22, hash12(lid + 5.9));
-    float lamps = max(lampX, lampY) * mix(0.25, 1.0, district) * (1.0 - park);
-    /* tail-lights and headlights running down the avenues */
-    float tx = line(av.x, 0.16, aa.x) * line(abs(fract(q.y / 5.3 + uTime * 0.05) - 0.5) * 5.3, 0.16, aa.y);
-    float ty = line(av.y, 0.16, aa.y) * line(abs(fract(q.x / 4.7 - uTime * 0.06) - 0.5) * 4.7, 0.16, aa.x);
-    vec3 c = vec3(0.0032, 0.0042, 0.0052) * (1.0 - park * 0.4);
-    c += street * vec3(0.006, 0.0048, 0.0036) + avenue * vec3(0.012, 0.008, 0.005);
-    c += lamps * vec3(2.2, 1.0, 0.32);
-    c += tx * vec3(2.2, 0.25, 0.12) + ty * vec3(1.9, 1.7, 1.3);
-    /* far away, hand the pattern over to its own average glow */
-    float far = smoothstep(0.18, 0.7, max(aa.x, aa.y));
-    vec3 avg = vec3(0.0032, 0.0042, 0.0052) + vec3(0.05, 0.023, 0.0075) * mix(0.35, 1.0, district);
-    c = mix(c, avg, far);
+    vec2 uv = (vWorld.xz - uCity.xy) * uCity.zw;
+    vec2 e = min(uv, 1.0 - uv);
+    float inside = smoothstep(0.0, 0.05, min(e.x, e.y));
+    vec3 t = texture2D(tCity, vec2(uv.x, 1.0 - uv.y)).rgb;
+    float district = smoothstep(0.25, 0.65, vnoise(vWorld.xz * 0.006 + 3.1));
+    vec3 c = vec3(0.0032, 0.0042, 0.0052) + t * t * 1.5;
+    vec3 far = vec3(0.0032, 0.0042, 0.0052) + vec3(0.05, 0.023, 0.0075) * mix(0.2, 1.0, district);
+    c = mix(far, c, inside);
     vec3 V = vWorld - cameraPosition;
     float fogF = heightFog(cameraPosition, vWorld, uFogDensity);
     c = mix(c, fogTint(uFogColor, normalize(V)), fogF);
@@ -150,29 +125,49 @@ const WALL_FS = /* glsl */ `
     gl_FragColor = vec4(c, 1.0);
   }`;
 
-function bankGeometries(side) {
-  const step = 5, n = Math.ceil(LEN / step) + 1, far = 1700;
-  const top = [], wall = [];
-  for (let i = 0; i < n; i++) {
-    const d = Math.min(i * step, LEN);
-    const f = RIVER.frame(d, {});
-    const ix = f.x + f.rx * side * f.hw, iz = f.z + f.rz * side * f.hw;
-    top.push(ix, BANK_Y, iz, ix + f.rx * side * far, BANK_Y, iz + f.rz * side * far);
-    wall.push(ix, BANK_Y, iz, ix, -2.5, iz);
-  }
-  const strip = (arr) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-    const idx = [];
-    for (let i = 0; i < n - 1; i++) {
-      const a = i * 2, b = a + 2;
-      idx.push(a, a + 1, b, b, a + 1, b + 1);
+/* Every piece of land from the map, cut around the water, with an embankment
+   wall dropped from each shoreline. */
+function bankGeometries(map) {
+  const { landXZ: xz, landRingN: ringN, landPolyN: polyN, quant: Q } = map;
+  const top = [], topIdx = [], wall = [], wallIdx = [], shores = [];
+  let at = 0, r = 0;
+  for (let pi = 0; pi < polyN.length; pi++) {
+    const rings = [];
+    for (let k = 0; k < polyN[pi]; k++) {
+      const n = ringN[r++], ring = [];
+      for (let i = 0; i < n; i++) ring.push(new THREE.Vector2(xz[at + i * 2] / Q, xz[at + i * 2 + 1] / Q));
+      at += n * 2;
+      rings.push(ring);
     }
+    shores.push(...rings);
+    const base = top.length / 3;
+    for (const ring of rings) for (const v of ring) top.push(v.x, BANK_Y, v.y);
+    for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(rings[0], rings.slice(1))) topIdx.push(base + a, base + b, base + c);
+  }
+  for (const ring of shores) {
+    const base = wall.length / 3, n = ring.length;
+    for (const v of ring) wall.push(v.x, BANK_Y, v.y, v.x, -2.5, v.y);
+    for (let i = 0; i < n; i++) {
+      const a = base + i * 2, b = base + ((i + 1) % n) * 2;
+      wallIdx.push(a, a + 1, b, b, a + 1, b + 1);
+    }
+  }
+  /* beyond the survey the land simply carries on into the haze */
+  const [x0, x1, z0, z1] = SAIGON.extent, F = 7000;
+  const base = top.length / 3;
+  for (const [ax, az, bx, bz] of [[-F, -F, F, z0], [-F, z1, F, F], [-F, z0, x0, z1], [x1, z0, F, z1]]) {
+    const k = top.length / 3;
+    top.push(ax, BANK_Y, az, bx, BANK_Y, az, ax, BANK_Y, bz, bx, BANK_Y, bz);
+    topIdx.push(k, k + 1, k + 2, k + 2, k + 1, k + 3);
+  }
+  const mesh = (pos, idx) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx);
     g.computeBoundingSphere();
     return g;
   };
-  return { top: strip(top), wall: strip(wall) };
+  return { top: mesh(top, topIdx), wall: mesh(wall, wallIdx), shores };
 }
 
 /* ------------------------------------------------------------ the water */
@@ -304,39 +299,55 @@ const HAZE_FS = /* glsl */ `
   }`;
 
 /* ------------------------------------------------------------ build */
-export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240, mobile = false }) {
+export function createRiver(scene, { map, cityTexture, lights, reflectScale = 0.5, lanterns = 240, mobile = false }) {
   const group = new THREE.Group();
   scene.add(group);
   const rnd = mulberry32(42);
 
   /* banks */
+  const C = SAIGON.city;
   const groundMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: time, ...fogUniforms },
+    uniforms: {
+      tCity: { value: cityTexture },
+      uCity: { value: new THREE.Vector4(C.x0, C.z0, 1 / (C.x1 - C.x0), 1 / (C.z1 - C.z0)) },
+      ...fogUniforms,
+    },
     vertexShader: GROUND_VS, fragmentShader: GROUND_FS, side: THREE.DoubleSide,
   });
   const wallMat = new THREE.ShaderMaterial({
     uniforms: { ...fogUniforms },
     vertexShader: GROUND_VS, fragmentShader: WALL_FS, side: THREE.DoubleSide,
   });
-  for (const side of [-1, 1]) {
-    const g = bankGeometries(side);
-    group.add(new THREE.Mesh(g.top, groundMat), new THREE.Mesh(g.wall, wallMat));
-  }
+  const banks = bankGeometries(map);
+  const land = new THREE.Mesh(banks.top, groundMat), walls = new THREE.Mesh(banks.wall, wallMat);
+  land.frustumCulled = walls.frustumCulled = false;
+  group.add(land, walls);
 
-  /* promenade lamps along both embankments */
+  /* promenade lamps down both banks of the river itself, not the canals */
   const lamp = hdr('#ffd2a0', 1.5), lampCool = hdr('#d9e6ff', 1.2);
-  for (let d = 4; d < LEN - 4; d += 3.4) {
-    const f = RIVER.frame(d, {});
-    for (const side of [-1, 1]) {
-      const o = f.hw + 0.7;
-      const c = (Math.floor(d / 160) + (side > 0 ? 1 : 0)) % 3 === 0 ? lampCool : lamp;
-      lights.add(f.x + f.rx * side * o, BANK_Y + 0.42, f.z + f.rz * side * o, c, 0.2);
+  const reach = [SITES.nhaRong - 420, SITES.l81 + 500];
+  const shoreFrame = {};
+  for (const ring of banks.shores) {
+    let carry = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length], len = a.distanceTo(b);
+      for (let t = carry; t < len; t += 3.4) {
+        const x = lerp(a.x, b.x, t / len), z = lerp(a.y, b.y, t / len);
+        const d = RIVER.dAt(x, z);
+        RIVER.frame(d, shoreFrame);
+        const off = Math.hypot(x - shoreFrame.x, z - shoreFrame.z);
+        if (d < reach[0] || d > reach[1] || off > shoreFrame.hw * 1.7) continue;
+        const k = 0.7 / off, c = Math.floor(d / 160) % 3 === 0 ? lampCool : lamp;
+        lights.add(x + (x - shoreFrame.x) * k, BANK_Y + 0.42, z + (z - shoreFrame.z) * k, c, 0.2);
+      }
+      carry = Math.max(0, carry - len);
+      carry = (carry + 3.4 - (len % 3.4)) % 3.4;
     }
   }
 
   /* water */
   const normalTex = waterNormalTexture(256);
-  const water = new Reflector(new THREE.PlaneGeometry(9000, 9000), {
+  const water = new Reflector(new THREE.PlaneGeometry(14000, 14000), {
     clipBias: 0.003,
     textureWidth: 512,
     textureHeight: 512,
@@ -344,7 +355,6 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
     shader: WaterShader,
   });
   water.rotation.x = -Math.PI / 2;
-  water.position.set(0, 0, -900);
   const wu = water.material.uniforms;
   wu.tNormal.value = normalTex;
   wu.uFogColor.value = FOG.color;
@@ -355,8 +365,8 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
     water.getRenderTarget().setSize(Math.max(64, Math.round(w * reflectScale)), Math.max(64, Math.round(h * reflectScale)));
   }
 
-  /* hoa đăng, released at the mouth and drifting down with the current */
-  const dA = RIVER.dAtZ(80), dB = RIVER.dAtZ(-980);
+  /* hoa đăng, released around the bend and drifting down with the current */
+  const dA = SITES.nhaRong - 150, dB = SITES.l81 + 90;
   const L = {
     n: lanterns,
     d: new Float32Array(lanterns), lat: new Float32Array(lanterns),
@@ -428,11 +438,27 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
     group.add(boat);
     boats.push({
       obj: boat,
-      d: lerp(RIVER.dAtZ(-40), RIVER.dAtZ(-880), (b + rnd() * 0.5) / 4),
+      d: lerp(dA + 20, dB - 20, (b + rnd() * 0.5) / 4),
       lat: (b % 2 ? 0.42 : -0.18) + (rnd() - 0.5) * 0.12,
       v: (b % 2 ? -1 : 1) * (0.9 + rnd() * 0.6),
     });
   }
+
+  /* lục bình: rafts of water hyacinth riding the current, as they always do here */
+  const rafts = [];
+  const raftGeo = new THREE.IcosahedronGeometry(1, 1);
+  raftGeo.scale(1, 0.14, 0.72);
+  const rn = mobile ? 34 : 80;
+  const leaves = new THREE.InstancedMesh(raftGeo, new THREE.MeshBasicMaterial({ color: '#0a120c' }), rn);
+  const flowers = new THREE.InstancedMesh(new THREE.SphereGeometry(0.06, 6, 4), new THREE.MeshBasicMaterial({ color: hdr('#c4b0ff', 1.1) }), rn);
+  leaves.frustumCulled = flowers.frustumCulled = false;
+  for (let i = 0; i < rn; i++) {
+    rafts.push({
+      d: lerp(dA, dB, rnd()), lat: (rnd() * 2 - 1) * 0.86, v: 0.12 + rnd() * 0.22,
+      size: 0.35 + rnd() * rnd() * 1.5, yaw: rnd() * Math.PI, ph: rnd() * 100,
+    });
+  }
+  group.add(leaves, flowers);
 
   /* slabs of mist low on the water, turned to face the camera */
   const hazeTex = hazeTexture();
@@ -454,7 +480,7 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
   const hGeo = new THREE.PlaneGeometry(1, 1);
   for (let i = 0; i < (mobile ? 9 : 16); i++) {
     const m = new THREE.Mesh(hGeo, hazeMat);
-    const d = lerp(SITES.hero + 40, SITES.l81 + 120, i / (mobile ? 9 : 16)) + rnd() * 30;
+    const d = lerp(dA, dB + 100, i / (mobile ? 9 : 16)) + rnd() * 30;
     const f = RIVER.frame(d, {});
     const lat = (rnd() * 2 - 1) * f.hw * 0.9;
     m.position.set(f.x + f.rx * lat, 1.2 + rnd() * 1.6, f.z + f.rz * lat);
@@ -465,10 +491,19 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
     hazes.push({ m, d, lat, v: 0.2 + rnd() * 0.3 });
   }
 
-  const tmp = {};
+  /* the mirror is the costliest thing on screen, and it only matters near the
+     river: away from it, one refresh now and then is plenty */
+  const mirror = water.onBeforeRender;
+  let frame = 0;
+  water.onBeforeRender = (...a) => { if (frame === 0) mirror.call(water, ...a); };
+
+  const tmp = {}, M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
   function update(dt, t, camera) {
     wu.uTime.value = t;
     wu.uFogDensity.value = fogUniforms.uFogDensity.value;
+    RIVER.frame(RIVER.dAt(camera.position.x, camera.position.z), tmp);
+    const away = Math.hypot(camera.position.x - tmp.x, camera.position.z - tmp.z) > 120;
+    frame = away ? (frame + 1) % 45 : 0;
 
     for (let i = 0; i < L.n; i++) {
       let d = L.d[i] - L.v[i] * dt;
@@ -492,6 +527,19 @@ export function createRiver(scene, { lights, reflectScale = 0.5, lanterns = 240,
       const s = Math.sign(b.v);
       b.obj.rotation.y = Math.atan2(-f.tz * s, f.tx * s);
     }
+
+    rafts.forEach((r, i) => {
+      r.d -= r.v * dt;
+      if (r.d < dA) r.d += dB - dA;
+      const f = RIVER.frame(r.d, tmp), lat = r.lat * f.hw;
+      P.set(f.x + f.rx * lat, 0.05 + 0.02 * Math.sin(t * 0.8 + r.ph), f.z + f.rz * lat);
+      Q.setFromAxisAngle(UP, r.yaw + 0.05 * Math.sin(t * 0.2 + r.ph));
+      M.compose(P, Q, S.setScalar(r.size));
+      leaves.setMatrixAt(i, M);
+      P.y += 0.12 * r.size;
+      flowers.setMatrixAt(i, M.compose(P, Q, S.setScalar(r.size * 0.7)));
+    });
+    leaves.instanceMatrix.needsUpdate = flowers.instanceMatrix.needsUpdate = true;
 
     for (const h of hazes) {
       h.m.rotation.y = Math.atan2(camera.position.x - h.m.position.x, camera.position.z - h.m.position.z);

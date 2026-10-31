@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 
-/* The moon hangs above the bridge at the river mouth, a little right of the
-   way upstream, the way Kage hangs its moon over the gate. */
-export const MOON_DIR = new THREE.Vector3(0.136, 0.295, -1).normalize();
+/* The moon hangs north-west of the river, above District 1 from the water. */
+export const MOON_DIR = new THREE.Vector3(-0.72, 0.295, -0.7).normalize();
 
 /* One fog for every material on the page. The colour object is shared by
    reference, so the scene fog and the custom shaders never drift apart. */

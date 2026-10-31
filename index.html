@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Doan Van Quyet — Upstream</title>
-<meta name="description" content="Doan Van Quyet, VNU-HCM High School for the Gifted, Class of 2027. Research in stock-market forecasting and Vietnamese speech recognition, leadership and honors, told as a night journey up the Saigon River.">
+<title>Where am I? A game by Doan Van Quyet</title>
+<meta name="description" content="A game in four photographs of Saigon, played on the real map of the city. Find each place on the map and find out who I am along the way.">
 <meta name="author" content="Doan Van Quyet">
 <meta name="theme-color" content="#05070a">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Doan Van Quyet — Upstream">
-<meta property="og:description" content="A night journey up the Saigon River: the research, leadership and honors of Doan Van Quyet, Class of 2027.">
+<meta property="og:title" content="Where am I? A game by Doan Van Quyet">
+<meta property="og:description" content="Four photographs of Saigon. Find each one on the map, and find out who I am along the way.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2305070a'/%3E%3Ccircle cx='20' cy='11' r='5.5' fill='%23f2b84b'/%3E%3Cpath d='M5 21.5h22M9 26h14' stroke='%23dfe7e0' stroke-width='1.6' stroke-linecap='round'/%3E%3Ccircle cx='10' cy='21.5' r='1.9' fill='%23d8342b'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,304 +26,54 @@
 <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
-<a class="skip" href="#origin">Skip to content</a>
+<a class="skip" href="#main">Skip to the game</a>
 
 <canvas id="gl" aria-hidden="true"></canvas>
 <div id="scrim" aria-hidden="true"></div>
+<canvas id="math" aria-hidden="true"></canvas>
 <div id="grain" aria-hidden="true"></div>
 
 <header class="nav" id="nav">
-  <a class="brand" href="#hero" aria-label="Doan Van Quyet, back to the start">
+  <a class="brand" href="#start" aria-label="Doan Van Quyet, back to the start">
     <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="20" cy="11" r="5.5" fill="#f2b84b"/><path d="M5 21.5h22M9 26h14" stroke="#dfe7e0" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="21.5" r="1.9" fill="#d8342b"/></svg>
-    <span class="brand-text"><b>Doan Van Quyet</b><small>Saigon · Class of 2027</small></span>
+    <span class="brand-text"><b id="brand-name"></b><small>Saigon</small></span>
   </a>
-  <nav class="nav-links" aria-label="Chapters">
-    <a href="#origin" data-sec="origin">Origins</a>
-    <a href="#research" data-sec="research">Research</a>
-    <a href="#leadership" data-sec="leadership">Leadership</a>
-    <a href="#honors" data-sec="honors">Honors</a>
-    <a href="#contact" data-sec="contact">Contact</a>
-  </nav>
-  <button class="burger" id="burger" type="button" aria-expanded="false" aria-controls="sheet" aria-label="Open the chapter menu"><i></i><i></i></button>
+  <p class="score" id="score" aria-live="polite"></p>
 </header>
-
-<div class="sheet" id="sheet" hidden>
-  <ol class="sheet-list">
-    <li><a href="#hero"><span>00</span>Sông Sài Gòn<small>The river mouth</small></a></li>
-    <li><a href="#origin"><span>01</span>Bến Nhà Rồng<small>Origins</small></a></li>
-    <li><a href="#research"><span>02</span>Bitexco<small>Research &amp; builds</small></a></li>
-    <li><a href="#leadership"><span>03</span>Cầu Ba Son<small>Experience &amp; leadership</small></a></li>
-    <li><a href="#honors"><span>04</span>Landmark 81<small>Honors</small></a></li>
-    <li><a href="#contact"><span>05</span>Đỉnh tháp<small>What’s next</small></a></li>
-  </ol>
-</div>
 
 <aside class="vword" id="vword" aria-hidden="true"><span class="vword-main">Sông Sài Gòn</span><span class="vword-gloss">the Saigon River</span></aside>
 
-<div class="hud" id="hud" aria-hidden="true">Floor <b data-fl>01</b> / 81 <span>·</span> <b data-alt>0</b> m</div>
-
-<nav class="rail" id="rail" aria-label="Journey progress">
-  <a href="#hero" aria-label="Chapter 00, the river mouth"></a>
-  <a href="#origin" aria-label="Chapter 01, origins"></a>
-  <a href="#research" aria-label="Chapter 02, research"></a>
-  <a href="#leadership" aria-label="Chapter 03, leadership"></a>
-  <a href="#honors" aria-label="Chapter 04, honors"></a>
-  <a href="#contact" aria-label="Chapter 05, contact"></a>
-</nav>
-
 <main id="main">
-
-  <!-- 00 · Phú Mỹ Bridge -->
-  <section class="hero" id="hero" data-word="Sông Sài Gòn" data-gloss="the Saigon River">
-    <div class="hero-copy">
-      <p class="label reveal"><i class="dot"></i>Chapter 00 — The river mouth</p>
-      <h1 class="display split">Upstream, one question at a time.</h1>
-      <p class="lede reveal">A night journey up the Saigon River, from Phú Mỹ Bridge to the top of Landmark 81. Each stop holds one part of my story: school, research, the people I’ve worked with, and the wins along the way.</p>
-      <p class="byline reveal">Doan Van Quyet <span aria-hidden="true">·</span> VNU-HCM High School for the Gifted, Class of 2027</p>
-    </div>
-    <div class="hero-foot">
-      <div class="hero-index reveal">
-        <p class="scroll-hint">Scroll to begin <i aria-hidden="true"></i></p>
-        <ol class="index">
-          <li><a href="#origin"><span>01</span><small>Nhà Rồng</small></a></li>
-          <li><a href="#research"><span>02</span><small>Bitexco</small></a></li>
-          <li><a href="#leadership"><span>03</span><small>Ba Son</small></a></li>
-          <li><a href="#honors"><span>04</span><small>Landmark 81</small></a></li>
-          <li><a href="#contact"><span>05</span><small>Summit</small></a></li>
-        </ol>
-      </div>
-      <aside class="now reveal" aria-label="What I am working on now">
-        <canvas class="now-viz" data-viz="spark" aria-hidden="true"></canvas>
-        <div class="now-text">
-          <p class="now-k"><i class="dot"></i>Now</p>
-          <p>Revising my stock-forecasting paper for <em>Finance Research Open</em> (Elsevier) after first-round peer review.</p>
-        </div>
-      </aside>
+  <section class="start" id="start" data-stop="0" data-word="Sông Sài Gòn" data-gloss="the Saigon River">
+    <div class="start-copy">
+      <p class="label reveal"><i class="dot"></i>A game in four photographs</p>
+      <h1 class="display split" id="start-title"></h1>
+      <p class="lede reveal" id="start-lede"></p>
+      <button class="go play reveal" id="play" type="button"></button>
     </div>
   </section>
 
-  <!-- 01 · Bến Nhà Rồng -->
-  <section class="sec origin" id="origin" data-word="Khởi hành" data-gloss="to set out">
-    <div class="sec-head">
-      <p class="label reveal"><i class="dot"></i>01 — Bến Nhà Rồng · Origins</p>
-      <h2 class="display split">Where every journey out begins.</h2>
-    </div>
-    <div class="origin-body">
-      <p class="big reveal">Nhà Rồng is the old Saigon wharf where ships once left for the rest of the world. My own point of departure is two schools for the gifted: Tran Dai Nghia High School for the Gifted (class of 2024), then the VNU-HCM High School for the Gifted (class of 2027), with a cumulative GPA of 9.6 / 10 at both.</p>
-      <a class="cta reveal" href="#research">See the research <i aria-hidden="true">↓</i></a>
-    </div>
-    <dl class="stats reveal">
-      <div><dt>SAT</dt><dd><b>1550</b><small>750 · 800</small></dd></div>
-      <div><dt>IELTS</dt><dd><b>8.0</b><small>8.5 · 9 · 7 · 7</small></dd></div>
-      <div><dt>GPA, out of 10</dt><dd><b>9.6</b><small>At both schools</small></dd></div>
-      <div><dt>AP exams scored 5</dt><dd><b>5</b><small>Calc BC · Micro · Macro · CS A · Stats</small></dd></div>
-    </dl>
-    <p class="fine reveal">AP Calculus BC 5 (AB subscore 5) · AP Microeconomics 5 · AP Macroeconomics 5 · AP Computer Science A 5 · AP Statistics 5 · AP Physics C: Mechanics 4 · AP Psychology 3</p>
+  <div id="rounds"></div>
+
+  <section class="end" id="end" data-stop="6" data-word="Phía trước" data-gloss="what lies ahead" hidden>
+    <p class="label"><i class="dot"></i>Final score</p>
+    <p class="final"><b id="final">0</b><small>out of 20,000</small></p>
+    <h2 class="display split" id="end-title"></h2>
+    <p class="intro" id="end-lede"></p>
+    <ol class="recap" id="recap"></ol>
+    <p class="intro" id="end-contact"></p>
+    <a class="mail" id="mail"></a>
+    <p class="links"><a id="linkedin" target="_blank" rel="noopener">LinkedIn <i aria-hidden="true">↗</i></a><button class="plain" id="again" type="button">Play again</button></p>
   </section>
-
-  <!-- 02 · Bitexco Financial Tower -->
-  <section class="sec research" id="research" data-word="Nghiên cứu" data-gloss="research">
-    <div class="sec-head">
-      <p class="label reveal"><i class="dot"></i>02 — Bitexco Financial Tower · Research &amp; builds</p>
-      <h2 class="display split">Test the claim before you trust the model.</h2>
-      <p class="intro reveal">Saigon’s financial tower, for two research projects and one product. Each one is judged by a number that has to hold up.</p>
-    </div>
-
-    <div class="cards">
-      <article class="card c1 reveal" data-tilt>
-        <canvas data-viz="prisma" aria-hidden="true"></canvas>
-        <span class="card-n">01 / 03</span>
-        <h3 class="card-title">Forecasting, re-examined</h3>
-        <span class="card-word" lang="vi">Dự báo</span>
-      </article>
-      <div class="detail d1 reveal">
-        <p class="meta">Independent research · Sole author · May 2026 – present</p>
-        <h4>ML &amp; DL forecasting in the Vietnamese stock market</h4>
-        <p>Paper accepted at VietResCon 2026. The expanded journal version is under revision after first-round peer review at <em>Finance Research Open</em> (Elsevier).</p>
-        <ul>
-          <li>Screened 813 records down to 19 studies under PRISMA 2020, and appraised each one against a 9-domain validity rubric I designed.</li>
-          <li>Traced 90%+ “accuracy” claims to relabeled error or fit statistics, or to data leakage. None of the studies benchmarked against a naive forecast.</li>
-          <li>Re-ran the only public code-and-data artifact (PLOS ONE, 2025) and reproduced its results exactly. A zero-return forecast still beat it.</li>
-        </ul>
-      </div>
-
-      <article class="card c2 reveal" data-tilt>
-        <canvas data-viz="voice" aria-hidden="true"></canvas>
-        <span class="card-n">02 / 03</span>
-        <h3 class="card-title">Every Vietnamese accent</h3>
-        <span class="card-word" lang="vi">Giọng nói</span>
-      </article>
-      <div class="detail d2 reveal">
-        <p class="meta">AIoT Lab VN, HCMUT · Student Researcher · May – Sep 2026</p>
-        <h4>Regional Vietnamese speech recognition</h4>
-        <ul>
-          <li>Fine-tuned the PhoWhisper ASR model on the ViMD dataset, so voice-enabled services recognize Vietnamese more reliably across regional dialects.</li>
-          <li>Reached a 7.84% word error rate and a 5.87% character error rate across 2,026 test utterances.</li>
-        </ul>
-      </div>
-
-      <article class="card c3 reveal" data-tilt>
-        <canvas data-viz="ext" aria-hidden="true"></canvas>
-        <span class="card-n">03 / 03</span>
-        <h3 class="card-title">Merid &amp; ClaudeUsageBar</h3>
-        <span class="card-word" lang="vi">Tiện ích</span>
-      </article>
-      <div class="detail d3 reveal">
-        <p class="meta">Co-founder · Jul 2026 – present</p>
-        <h4>Two Chrome extensions</h4>
-        <ul>
-          <li>Merid turns Vietnamese web browsing into personalized English vocabulary practice.</li>
-          <li>ClaudeUsageBar lets people track their Claude usage right in the browser and in the chat.</li>
-          <li>1st place at the TDTU Vibe Coding Competition 2026. 1,500+ weekly users.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <!-- 03 · Ba Son Bridge -->
-  <section class="sec leadership" id="leadership" data-word="Kết nối" data-gloss="to connect">
-    <div class="sec-head">
-      <p class="label reveal"><i class="dot"></i>03 — Cầu Ba Son · Experience &amp; leadership</p>
-      <h2 class="display split">Build the bridge, then bring people across.</h2>
-      <p class="intro reveal">Seven places where I have worked, taught and organized, from a corporate bank to an orphanage classroom.</p>
-    </div>
-
-    <ol class="lessons reveal">
-      <li class="lesson">
-        <p class="n">01</p>
-        <h3>Sacombank</h3>
-        <p class="role">Corporate Banking Intern · Jul – Aug 2026 · 110+ hours</p>
-        <p>Modeled and consolidated financial statements for 7 SME clients, and computed the credit ratios behind preliminary loan assessments totaling VND 5.3 billion (~$205k). Joined relationship managers on client visits, and prepared corporate transaction documents, including materials for a SWIFT transfer involving JPMorgan Chase.</p>
-        <p class="stat"><b>VND 5.3B</b>in loan assessments</p>
-      </li>
-      <li class="lesson">
-        <p class="n">02</p>
-        <h3>CITT, Ton Duc Thang University</h3>
-        <p class="role">AI &amp; LLM Education Assistant Instructor · Aug 2026</p>
-        <p>Trained 650+ teachers in 10 sessions on LLMs and generative AI, focused on practical ways to use AI tools in teaching.</p>
-        <p class="stat"><b>650+</b>teachers trained</p>
-      </li>
-      <li class="lesson">
-        <p class="n">03</p>
-        <h3>Shark Club, PTNK Economics Club</h3>
-        <p class="role">Member (G10) → President (G11) → Senior Advisor (G12) · Sep 2024 – present</p>
-        <p>Led ‘Monopreneur’ (2026), an entrepreneurship talkshow-workshop for 140+ participants, with guest speakers including Huy Forum (3M+ followers). Designed and hosted 12 biweekly AP Microeconomics sessions for about 20 students. Organized ‘Show Me How’ (2025), a week-long case competition with 80+ participants.</p>
-        <p class="stat"><b>11 / 13</b>AP Micro exam-takers from my sessions scored a 5</p>
-      </li>
-      <li class="lesson">
-        <p class="n">04</p>
-        <h3>Vietnam4Future Challenge</h3>
-        <p class="role">Co-President · Dec 2025 – Jul 2026</p>
-        <p>Co-led a nationwide entrepreneurship competition for 50+ high school students, a philanthropic initiative launched with WICOM Lab at the University of Mount Union. Secured 5+ mentors, judges and educators, organized 8 mentorship sessions, and taught a game theory workshop for the finalists.</p>
-        <p class="stat"><b>50+</b>students, nationwide</p>
-      </li>
-      <li class="lesson">
-        <p class="n">05</p>
-        <h3>OhioHacks</h3>
-        <p class="role">Co-President · Feb – Jul 2026</p>
-        <p>Led OhioHacks end to end: planning, outreach, recruitment and execution for 7 teams and 30 participants, with 2 information sessions and 3 experienced judges.</p>
-        <p class="stat"><b>7 teams</b>30 participants</p>
-      </li>
-      <li class="lesson">
-        <p class="n">06</p>
-        <h3>PTNK Deutschklub</h3>
-        <p class="role">Finance Member (G10) → Head of Finance (G11) → Senior Advisor (G12)</p>
-        <p>Led the finances for 4 German culture events with 220+ participants: Autobahn der Kulturen, Karneval, Oktoberfest and Reise nach Deutschland.</p>
-        <p class="stat"><b>220+</b>guests across 4 events</p>
-      </li>
-      <li class="lesson">
-        <p class="n">07</p>
-        <h3>Project Sugar, The Route to Knowledge</h3>
-        <p class="role">Volunteer Math Tutor · Aug 2024 – Jul 2025</p>
-        <p>Tutored a Grade 10 student at a local orphanage for 2 hours a week through the whole school year (72 hours), with individualized lessons and practice materials. Their math grade rose from 7 / 10 to 9+ / 10.</p>
-        <p class="stat"><b>7 → 9+</b>math grade, out of 10</p>
-      </li>
-    </ol>
-  </section>
-
-  <!-- 04 · Landmark 81 -->
-  <section class="sec climb" id="honors" data-word="Vươn lên" data-gloss="to rise">
-    <div class="climb-grid">
-      <div class="climb-sticky">
-        <p class="label reveal"><i class="dot"></i>04 — Landmark 81 · Honors</p>
-        <h2 class="display split">Eighty-one floors. Five honors.</h2>
-        <p class="intro reveal">Vietnam’s tallest tower, climbed one honor at a time.</p>
-        <div class="meter reveal" aria-hidden="true">
-          <p class="meter-fl"><span id="fl">01</span><small>/ 81</small></p>
-          <p class="meter-m"><span id="alt">0</span> m above the river</p>
-        </div>
-      </div>
-      <ol class="honors">
-        <li class="honor" data-floor="14">
-          <p class="fl-tag">Floor 14</p>
-          <h3><span class="prize">Second Prize</span> <span class="what">Vietnam Economics Olympiad (VEO) 2025</span></h3>
-        </li>
-        <li class="honor" data-floor="29">
-          <p class="fl-tag">Floor 29</p>
-          <h3><span class="prize">Champion</span> <span class="what">Dash for Impact 2024, AIESEC in Vietnam</span></h3>
-          <p>A national social-impact business case competition. 1st of 600+ students.</p>
-        </li>
-        <li class="honor" data-floor="45">
-          <p class="fl-tag">Floor 45</p>
-          <h3><span class="prize">Second Prize</span> <span class="what">Human vs. AI Bridge-Building Competition</span></h3>
-          <p>Oregon State University × VNU-HCM High School for the Gifted.</p>
-        </li>
-        <li class="honor" data-floor="62">
-          <p class="fl-tag">Floor 62</p>
-          <h3><span class="prize">Second Prize</span> <span class="what">Vietnam Mathematical Modeling Competition 2026</span></h3>
-          <p>Vietnam Institute for Advanced Study in Mathematics. In selection to represent Vietnam at the International Math Modeling Competition (IMMC) 2027.</p>
-        </li>
-        <li class="honor" data-floor="81">
-          <p class="fl-tag">Floor 81</p>
-          <h3><span class="prize">2× Champion</span> <span class="what">Humanitarian Logistics Hackathon 2026 &amp; 2025</span></h3>
-          <p>Kühne Logistics University, supported by HELP Logistics and the Red Cross. An international humanitarian technology hackathon: 1st of 1,000+ participants in 2026, and 1st of 800+ in 2025.</p>
-        </li>
-      </ol>
-    </div>
-  </section>
-
-  <!-- 05 · the summit -->
-  <section class="sec summit" id="contact" data-word="Phía trước" data-gloss="what lies ahead">
-    <p class="label reveal"><i class="dot"></i>05 — Đỉnh Landmark 81 · What’s next</p>
-    <h2 class="display split">From up here, the river keeps going.</h2>
-    <p class="intro reveal">I’m applying to universities for Fall 2027. If you’d like to talk about forecasting, speech models, economics or anything else on this page, I’d love to hear from you.</p>
-    <a class="mail reveal" href="mailto:vanquyet180109@gmail.com">vanquyet180109@gmail.com</a>
-    <p class="links reveal"><a href="https://www.linkedin.com/in/vanquyetdoan" target="_blank" rel="noopener">LinkedIn <i aria-hidden="true">↗</i></a></p>
-  </section>
-
 </main>
 
-<footer class="foot">
-  <div class="foot-top">
-    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="20" cy="11" r="5.5" fill="#f2b84b"/><path d="M5 21.5h22M9 26h14" stroke="#dfe7e0" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="21.5" r="1.9" fill="#d8342b"/></svg>
-    <p>A night journey up the Saigon River, built by hand in three.js with no photos and no video. The ridge on the horizon is the VN-Index, month by month from July 2000 to October 2026.</p>
-  </div>
-  <div class="foot-cols">
-    <div>
-      <p class="k">Chapters</p>
-      <a href="#origin">Bến Nhà Rồng</a>
-      <a href="#research">Bitexco</a>
-      <a href="#leadership">Cầu Ba Son</a>
-      <a href="#honors">Landmark 81</a>
-    </div>
-    <div>
-      <p class="k">Research</p>
-      <a href="#research">Forecasting, re-examined</a>
-      <a href="#research">Vietnamese speech recognition</a>
-      <a href="#research">Merid &amp; ClaudeUsageBar</a>
-    </div>
-    <div>
-      <p class="k">Elsewhere</p>
-      <a href="mailto:vanquyet180109@gmail.com">Email</a>
-      <a href="https://www.linkedin.com/in/vanquyetdoan" target="_blank" rel="noopener">LinkedIn</a>
-    </div>
-  </div>
-  <div class="foot-bar">
-    <span>© 2026 Doan Van Quyet</span>
-    <span lang="vi">Thành phố Hồ Chí Minh</span>
-    <span>Built with three.js</span>
-  </div>
+<footer class="foot" id="foot" hidden>
+  <p id="credits"></p>
+  <p>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>. The ridge on the horizon is the VN-Index, month by month from July 2000 to October 2026. Built with three.js.</p>
+  <p class="foot-bar"><span id="copyright"></span><span lang="vi">Thành phố Hồ Chí Minh</span></p>
 </footer>
+
+<noscript><p class="noscript">This site is a game, so it needs JavaScript to run.</p></noscript>
 
 <script type="module" src="js/main.js"></script>
 </body>

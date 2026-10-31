@@ -1,20 +1,23 @@
 import * as THREE from 'three';
-import { RIVER, SITES, BANK_Y } from './world/river.js';
-import { MOON_DIR } from './world/fog.js';
-import { clamp, lerp, damp, sat, smooth, smoother, easeOut, REDUCE } from './util.js';
+import { project } from './world/map.js';
+import { clamp, damp, lerp, sat, smooth, easeOut, REDUCE } from './util.js';
 
 /* =====================================================================
-   The camera rig. Seven stops, one per chapter, with via points between
-   them; scroll position picks a place on the path and the rig eases to it.
-     0 Phú Mỹ Bridge (hero) · 1 Nhà Rồng · 2 Bitexco · 3 Ba Son Bridge
-     4 foot of Landmark 81 · 5 its crown (the climb is a straight line)
-     6 the summit, looking out over the city toward the moon
+   The camera rig. One smooth path through the real city, one knot per
+   stop of the game, with a couple of extra knots to fly over the rooftops.
+   Scroll position picks a place on the path, and the camera glides there
+   at a capped speed, so the background never lurches however fast the
+   page moves.
+     0 the river at Nhà Rồng · 1 round one · 2 round two, the photograph
+     3 round two, straight above the junction · 4 round three
+     5 round four · 6 the end, looking back across the city
    ===================================================================== */
 
 const UP = new THREE.Vector3(0, 1, 0);
+const MAX_SPEED = 150;                   /* world units a second: 1.5 km/s from high up */
 
-/* Every stop is composed for a frame: the subject is placed at (sx, sy) in
-   normalised screen space, so the copy on the left keeps the dark water. */
+/* Every composed frame puts its subject at (sx, sy) in normalised screen
+   space, so the words on the left keep the dark water. */
 function lookFrom(pos, target, sx, sy, fov, aspect) {
   const dir = target.clone().sub(pos).normalize();
   const yaw = Math.atan2(dir.x, -dir.z), pitch = Math.asin(clamp(dir.y, -1, 1));
@@ -23,124 +26,129 @@ function lookFrom(pos, target, sx, sy, fov, aspect) {
   return pos.clone().add(new THREE.Vector3(Math.sin(y2) * Math.cos(p2), Math.sin(p2), -Math.cos(y2) * Math.cos(p2)).multiplyScalar(60));
 }
 
-export function createRig(camera, sites) {
-  const P = (d, k, y) => {
-    const f = RIVER.frame(d, {});
-    return new THREE.Vector3(f.x + f.rx * k * f.hw, y, f.z + f.rz * k * f.hw);
-  };
-  const S = SITES, T = sites.l81;
-  const LP = (toRiver, along, y) => T.pos.clone().addScaledVector(T.toRiver, toRiver).addScaledVector(T.along, along).setY(y);
+const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const near = (lat, lon, y, dx = 0, dz = 0) => { const p = project(lat, lon); return v3(p.x + dx, y, p.z + dz); };
 
-  const keys = [
-    { pos: P(S.hero, -0.42, 2.1), target: sites.phuMy.center.clone().setY(7.2), sx: 0.2, sy: -0.07 },
-    { pos: P(S.nhaRong - 21, -0.2, 2.3), target: sites.nhaRong.look, sx: 0.36, sy: -0.02 },
-    { pos: P(S.bitexco - 42, -0.28, 7.2), target: sites.bitexco.look, sx: 0.3, sy: 0.04 },
-    { pos: P(S.baSon - 32, -0.46, 2.6), target: sites.baSon.pylonTop.clone().setY(6.4), sx: 0.32, sy: 0.04 },
-    { pos: LP(48, -26, 2.4), target: T.pos.clone().setY(21), sx: 0.12, sy: 0.06 },
-    { pos: LP(17, -7, 41.5), target: T.pos.clone().setY(42.5), sx: 0.08, sy: 0 },
-    { pos: LP(14, -14, 56), target: null, sx: 0, sy: 0 },
+export function createRig(camera, sites, places) {
+  const { r1, r2, r3, r4 } = places;
+  const skyline = sites.bitexco.pos.clone().setY(13);
+
+  /* k: the stop of the game this knot belongs to; the in-between knots only shape the flight */
+  const knots = [
+    { k: 0, pos: v3(38, 2.1, 186), target: skyline, sx: 0.26, sy: 0.05 },
+    { k: 0.3, pos: v3(-120, 34, 262), target: v3(-300, 8, 320) },
+    { k: 0.65, pos: v3(-300, 44, 318), target: v3(-440, 6, 300) },
+    { k: 1, pos: near(r1.lat, r1.lon, 26, 26, 44), target: near(r1.lat, r1.lon, 2) },
+    { k: 2, pos: near(r2.lat, r2.lon, 30, 34, 26), target: near(r2.lat, r2.lon, 2) },
+    { k: 3, pos: near(r2.lat, r2.lon, 132, -22), target: near(r2.lat, r2.lon, 0, -22, -0.8), overhead: true },
+    { k: 4, pos: near(r3.lat, r3.lon, 24, 22, 30), target: near(r3.lat, r3.lon, 2) },
+    { k: 5, pos: near(r4.lat, r4.lon, 20, -18, 28), target: near(r4.lat, r4.lon, 2) },
+    { k: 6, pos: near(r4.lat, r4.lon, 74, -46, 58), target: skyline.clone().setY(4) },
   ];
-  const out = new THREE.Vector3(MOON_DIR.x, 0, MOON_DIR.z).normalize();
-  keys[6].target = keys[6].pos.clone().addScaledVector(out, 100).add(new THREE.Vector3(0, 2.5, 0));
+  const last = knots[knots.length - 1].k;
 
-  /* via points between stops: [position, look-at] */
-  const vias = [
-    [[P(S.phuMy - 26, -0.3, 2.6), P(S.phuMy + 70, 0, 3.4)], [P(S.phuMy + 24, -0.25, 3.0), P(S.nhaRong, 0.4, 3.0)]],
-    [[P((S.nhaRong + S.bitexco) / 2, -0.22, 5.0), sites.bitexco.look.clone()]],
-    [[P((S.bitexco + S.baSon) / 2 - 8, -0.32, 5.0), P(S.baSon + 30, 0.25, 4.5)]],
-    [[P(S.baSon + 2, -0.42, 6.4), T.pos.clone().setY(14)], [P(S.l81 - 60, -0.3, 3.6), T.pos.clone().setY(18)]],
-    [],
-    [],
-  ];
-
-  let segs = [];
+  let posC, lookC, table = [], total = 1;
   let aspect = camera.aspect, baseFov = 40;
   const hero = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 40, aspect: 1 };
 
-  /* On a tall frame the rig steps back, widens and centres its subjects. */
+  const uAt = (p) => {
+    const pc = clamp(p, 0, last);
+    let i = 0;
+    while (i < knots.length - 2 && pc >= knots[i + 1].k) i++;
+    const a = knots[i].k, b = knots[i + 1].k;
+    return (i + (pc - a) / (b - a)) / (knots.length - 1);
+  };
+
+  /* On a tall frame the rig widens and centres its subjects. */
   function build(asp) {
     aspect = asp;
     const tall = sat((1.15 - asp) / 0.65);
-    baseFov = lerp(40, 60, tall);
-    const pos = keys.map((k, i) => {
-      if (tall <= 0 || i === 5) return k.pos.clone();
-      const dir = k.target.clone().sub(k.pos).setY(0).normalize();
-      return k.pos.clone().addScaledVector(dir, -6 * tall).add(new THREE.Vector3(0, 0.6 * tall, 0));
-    });
-    const looks = keys.map((k, i) => lookFrom(pos[i], k.target, k.sx * (1 - tall), k.sy, baseFov, asp));
-    segs = [];
-    for (let j = 0; j < keys.length - 1; j++) {
-      segs.push({
-        pos: new THREE.CatmullRomCurve3([pos[j], ...vias[j].map((v) => v[0]), pos[j + 1]], false, 'centripetal'),
-        look: new THREE.CatmullRomCurve3([looks[j], ...vias[j].map((v) => v[1]), looks[j + 1]], false, 'centripetal'),
-        linear: j === 4,
-      });
+    baseFov = lerp(40, 58, tall);
+    /* straight above the junction, a tall frame climbs higher and keeps the graph
+       in the top half of the screen, clear of the words below it */
+    const lift = (v, k) => (k.overhead ? v.clone().add(new THREE.Vector3(22 * tall, v === k.pos ? 62 * tall : 0, 48 * tall)) : v.clone());
+    const pos = knots.map((k) => lift(k.pos, k));
+    const looks = knots.map((k, i) => lookFrom(pos[i], lift(k.target, k), (k.sx ?? 0) * (1 - tall), k.sy ?? 0, baseFov, asp));
+    posC = new THREE.CatmullRomCurve3(pos, false, 'centripetal');
+    lookC = new THREE.CatmullRomCurve3(looks, false, 'centripetal');
+    /* arc length along the path against scroll progress, so speed can be capped in world units */
+    const N = 480, tmp = new THREE.Vector3(), prev = new THREE.Vector3();
+    table = new Float32Array(N + 1);
+    posC.getPoint(uAt(0), prev);
+    for (let i = 1; i <= N; i++) {
+      posC.getPoint(uAt((i / N) * last), tmp);
+      table[i] = table[i - 1] + tmp.distanceTo(prev);
+      prev.copy(tmp);
     }
+    total = table[N];
     hero.pos.copy(pos[0]);
-    const m = new THREE.Matrix4().lookAt(pos[0], looks[0], UP);
-    hero.quat.setFromRotationMatrix(m);
+    hero.quat.setFromRotationMatrix(new THREE.Matrix4().lookAt(pos[0], looks[0], UP));
     hero.fov = baseFov;
     hero.aspect = asp;
   }
   build(camera.aspect);
 
+  const sAt = (p) => {
+    const t = (clamp(p, 0, last) / last) * (table.length - 1), i = Math.min(table.length - 2, Math.floor(t));
+    return lerp(table[i], table[i + 1], t - i);
+  };
+  const pAt = (s) => {
+    let a = 0, b = table.length - 1;
+    while (b - a > 1) { const m = (a + b) >> 1; if (table[m] <= s) a = m; else b = m; }
+    const f = (s - table[a]) / Math.max(1e-6, table[b] - table[a]);
+    return ((a + f) / (table.length - 1)) * last;
+  };
+
   const pos = new THREE.Vector3(), look = new THREE.Vector3(), fwd = new THREE.Vector3();
   const right = new THREE.Vector3(), up = new THREE.Vector3();
-  function evalAt(p) {
-    const n = segs.length, pc = clamp(p, 0, n);
-    const j = Math.min(n - 1, Math.floor(pc)), f = pc - j;
-    /* clamped: smootherstep can round to 1 + ε, and getPointAt reads past its table */
-    const s = segs[j], e = clamp(s.linear ? f : smoother(f), 0, 1);
-    s.pos.getPointAt(e, pos);
-    s.look.getPoint(e, look);
-  }
-
-  const state = { p: 0, intro: REDUCE ? 1 : 0, px: 0, py: 0, floor: 1, alt: 0, started: false };
+  const state = { p: 0, s: 0, intro: REDUCE ? 1 : 0, px: 0, py: 0, started: false };
 
   function update(dt, t, pTarget, pointer) {
+    const want = sAt(pTarget);
     if (!state.started) {
       /* arriving mid-page (a reload, a deep link): start there, skip the dolly */
       state.started = true;
-      state.p = pTarget;
+      state.s = want;
       if (pTarget > 0.25) state.intro = 1;
     }
-    /* reduced motion: no travelling shots, the camera cuts from stop to stop
-       (in quarter steps up the tower) while the meter still tracks the scroll */
-    const cut = pTarget > 4 && pTarget < 5 ? 4 + Math.round((pTarget - 4) * 4) / 4 : Math.round(pTarget);
-    state.p = REDUCE ? cut : damp(state.p, pTarget, 2.8, dt);
-    evalAt(state.p);
+    if (REDUCE) {
+      /* reduced motion: no travelling shots, the camera cuts from stop to stop */
+      state.s = sAt(Math.round(pTarget));
+    } else {
+      const step = (want - state.s) * (1 - Math.exp(-2 * dt)), cap = MAX_SPEED * dt;
+      state.s += clamp(step, -cap, cap);
+    }
+    state.p = pAt(state.s);
+    const u = uAt(state.p);
+    posC.getPoint(u, pos);
+    lookC.getPoint(u, look);
 
     /* the opening dolly: a long lens easing in from further back */
     if (!REDUCE) state.intro = Math.min(1, state.intro + dt / 3.8);
     const ei = easeOut(state.intro);
-    const w = (1 - ei) * (1 - smooth(0, 0.6, state.p));
+    const w = (1 - ei) * (1 - smooth(0, 0.2, state.p));
     fwd.copy(look).sub(pos).normalize();
-    pos.addScaledVector(fwd, -18 * w);
-    pos.y += 2.4 * w;
+    pos.addScaledVector(fwd, -14 * w);
+    pos.y += 1.8 * w;
 
-    /* parallax: a hand-held drift, never enough to break the frame */
+    /* parallax: a faint hand-held drift, never enough to break the frame */
     const k = REDUCE ? 0 : 1;
-    state.px = damp(state.px, pointer.x, 2.2, dt);
-    state.py = damp(state.py, pointer.y, 2.2, dt);
+    state.px = damp(state.px, pointer.x, 1.8, dt);
+    state.py = damp(state.py, pointer.y, 1.8, dt);
     right.crossVectors(fwd, UP).normalize();
     up.crossVectors(right, fwd);
-    pos.addScaledVector(right, (state.px * 0.32 + Math.sin(t * 0.37) * 0.07) * k)
-       .addScaledVector(up, (state.py * 0.16 + Math.sin(t * 0.53 + 1.3) * 0.045) * k);
-    look.addScaledVector(right, state.px * 0.9 * k).addScaledVector(up, state.py * 0.45 * k);
+    pos.addScaledVector(right, (state.px * 0.12 + Math.sin(t * 0.37) * 0.04) * k)
+       .addScaledVector(up, (state.py * 0.07 + Math.sin(t * 0.53 + 1.3) * 0.025) * k);
+    look.addScaledVector(right, state.px * 0.34 * k).addScaledVector(up, state.py * 0.18 * k);
 
     camera.position.copy(pos);
     camera.up.copy(UP);
     camera.lookAt(look);
-    const fov = baseFov - 11 * w;
+    const fov = baseFov - 8 * w;
     if (Math.abs(camera.fov - fov) > 1e-3) {
       camera.fov = fov;
       camera.updateProjectionMatrix();
     }
-
-    /* Landmark 81: 81 floors, 461 metres */
-    const climb = sat((REDUCE ? pTarget : state.p) - 4);
-    state.floor = Math.round(1 + 80 * climb);
-    state.alt = Math.round(461 * climb);
   }
 
   return {

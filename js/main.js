@@ -1,27 +1,38 @@
 /* =====================================================================
    QUYET — a night journey up the Saigon River.
    Everything in the world is generated at runtime: no photographs, no
-   video, no assets beyond three.js, one web font, and a table of
-   VN-Index month-end closes.
+   video in the world itself, only three.js, one web font, a table of
+   VN-Index month-end closes, and the OpenStreetMap survey of the city.
    ===================================================================== */
 import * as THREE from 'three';
-import { params, REDUCE, COARSE, smooth } from './util.js';
+import { params, REDUCE, COARSE, smooth, damp } from './util.js';
 import { installFog, FOG, fogUniforms } from './world/fog.js';
 import { time, pointScale, LightField } from './world/lights.js';
 import { createRiver } from './world/river.js';
 import { createSky } from './world/sky.js';
 import { createHorizon } from './world/horizon.js';
 import { createLandmarks } from './world/landmarks.js';
-import { createCity } from './world/city.js';
+import { createCity, createBeacon, paintStreets, cityTexture } from './world/city.js';
 import { createPetals, createWisps } from './world/life.js';
 import { createForeground } from './world/foreground.js';
 import { createRig } from './rig.js';
 import { createPost } from './post.js';
 import { initUI } from './ui.js';
-import { initCards } from './cards.js';
+import { loadMap } from './world/map.js';
+import { ROUNDS } from './game/content.js';
+import { createGame } from './game/game.js';
 
+const game = createGame();
 const ui = initUI();
-initCards();
+game.attach(ui);
+
+/* the real city: the game's map needs it even if the 3D world cannot run */
+const mobile = COARSE || Math.min(innerWidth, innerHeight) < 620;
+const mapReady = loadMap().then((map) => {
+  const streets = paintStreets(map, mobile ? 2048 : 4096);
+  game.setMap(map, streets);
+  return { map, streets };
+});
 
 function hasWebGL2() {
   try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
@@ -31,17 +42,15 @@ if (params.has('nogl') || !hasWebGL2()) {
   fallback();
 } else {
   /* give the page a moment to paint its words before the world is built */
-  setTimeout(() => boot().catch((e) => { console.error(e); fallback(); }), 60);
+  setTimeout(() => mapReady.then(boot).catch((e) => { console.error(e); fallback(); }), 60);
 }
 
 function fallback() {
   document.documentElement.classList.add('no-gl');
-  ui.staticMeter();
 }
 
-async function boot() {
+async function boot({ map, streets }) {
   const canvas = document.getElementById('gl');
-  const mobile = COARSE || Math.min(innerWidth, innerHeight) < 620;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -66,13 +75,15 @@ async function boot() {
   const lights = new LightField();
   const sky = createSky(scene, { dpr: pr });
   createHorizon(scene);
-  const river = createRiver(scene, { lights, mobile, lanterns: mobile ? 140 : 240, reflectScale: mobile ? 0.36 : 0.5 });
+  const river = createRiver(scene, { map, cityTexture: cityTexture(streets, renderer), lights, mobile, lanterns: mobile ? 140 : 240, reflectScale: mobile ? 0.36 : 0.5 });
   const marks = createLandmarks(scene, { lights });
-  createCity(scene, { lights, count: mobile ? 1800 : 4200, lamps: mobile ? 9000 : 30000, exclusions: marks.exclusions, sites: marks.sites });
+  const city = createCity(scene, { map, lights, lamps: mobile ? 12000 : 38000, keep: mobile ? 0.4 : 1, exclusions: marks.exclusions });
   scene.add(lights.build());
+  const beacon = createBeacon(scene);
   const petals = createPetals(scene, { count: mobile ? 170 : 380 });
   const wisps = createWisps(camera, { max: mobile ? 60 : 140 });
-  const rig = createRig(camera, marks.sites);
+  const [r1, r2, r3, r4] = ROUNDS.map((r) => r.answer);
+  const rig = createRig(camera, marks.sites, { r1, r2, r3, r4 });
 
   /* the wordmark is painted in the page font, so wait for it (not forever) */
   await Promise.race([
@@ -106,15 +117,27 @@ async function boot() {
   document.documentElement.addEventListener('pointerleave', () => { pointer.active = false; });
 
   /* debug: ?debug shows the frame budget, ?p=4.5 parks the camera */
-  const fixedP = params.has('p') ? parseFloat(params.get('p')) : null;
+  let fixedP = params.has('p') ? parseFloat(params.get('p')) : null;
   let hud = null;
   if (params.has('debug')) {
     hud = document.createElement('pre');
     hud.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;margin:0;padding:6px 8px;background:rgba(0,0,0,.6);color:#9f9;font:11px/1.4 ui-monospace,monospace;pointer-events:none';
     document.body.appendChild(hud);
     renderer.info.autoReset = false;
-    window.__q = { THREE, scene, renderer, camera, post, river, rig, fg, ui };
+    window.__q = { THREE, scene, renderer, camera, post, river, rig, fg, ui, city };
   }
+
+  /* what the game needs from the world */
+  let dim = 0, dimTo = 0;
+  const v = new THREE.Vector3();
+  game.setWorld({
+    project(x, z) {
+      v.set(x, 0.4, z).project(camera);
+      return { x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
+    },
+    dim(k) { dimTo = k; },
+    beacon: beacon.set,
+  });
 
   renderer.compile(scene, camera);
 
@@ -147,6 +170,10 @@ async function boot() {
     scene.fog.density = fd;
 
     sky.update(camera);
+    dim = damp(dim, dimTo, 2.2, dt);
+    city.setDim(dim);
+    beacon.update(dt);
+    city.update(camera);
     river.update(dt, t, camera);
     petals.update(t, camera);
     wisps.update(dt, t, pointer);
@@ -187,7 +214,11 @@ async function boot() {
   }
   requestAnimationFrame(frame);
   /* debug: step frames by hand, for when the page is not being painted */
-  if (window.__q) window.__q.step = (n = 1, ms = 16.7) => { for (let i = 0; i < n; i++) tick(last + ms); };
+  if (window.__q) {
+    window.__q.step = (n = 1, ms = 16.7) => { for (let i = 0; i < n; i++) tick(last + ms); };
+    /* ...and park the camera on any stop without a reload */
+    window.__q.park = (p) => { fixedP = p; rig.state.started = false; tick(last + 16.7); tick(last + 16.7); };
+  }
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { running = false; return; }

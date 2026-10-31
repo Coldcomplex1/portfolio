@@ -9,11 +9,12 @@ import { noise2D, fbm } from '../util.js';
    chart, and a thin gold line runs along its crest. A pulse walks the line
    from 2000 to today, over and over. */
 
-const C = new THREE.Vector2(0, -540);       /* centre of the arc (x, z) */
-const R = 2080, SPAN = 0.56;                /* radius, half-angle: the whole chart fits the opening frame */
+const C = new THREE.Vector2(0, 0);          /* centre of the arc (x, z) */
+const R = 2600, SPAN = 0.56;                /* radius, half-angle: the whole chart fits the opening frame */
+const FACING = -0.86;                       /* bearing of the chart's middle, west of north */
 const SUB = 3;                              /* sub-samples per month */
 
-const ang = (t, span = SPAN) => -Math.PI / 2 - span + 2 * span * t;     /* 0 → left, 1 → right */
+const ang = (t, span = SPAN) => -Math.PI / 2 + FACING - span + 2 * span * t;     /* 0 → left, 1 → right */
 
 const RIDGE_FS = /* glsl */ `
   uniform vec3 uFogColor;

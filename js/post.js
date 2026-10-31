@@ -43,6 +43,21 @@ const GradeShader = {
     }`,
 };
 
+/* one bad pixel anywhere would be smeared into a grey square by the bloom,
+   so anything that is not a sensible colour stops here */
+const ScrubShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: GradeShader.vertexShader,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      if (!(c.r < 1e4 && c.g < 1e4 && c.b < 1e4) || !(c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0)) c = vec3(0.0);
+      gl_FragColor = vec4(min(c, vec3(48.0)), 1.0);
+    }`,
+};
+
 export function createPost(renderer, scene, camera, { samples = 4, strength = 0.85 } = {}) {
   const size = renderer.getSize(new THREE.Vector2());
   const pr = renderer.getPixelRatio();
@@ -51,6 +66,7 @@ export function createPost(renderer, scene, camera, { samples = 4, strength = 0.
   composer.setPixelRatio(pr);
   composer.setSize(size.x, size.y);
   composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new ShaderPass(ScrubShader));
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x * pr, size.y * pr), strength, 0.42, 0.9);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());

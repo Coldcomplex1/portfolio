@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { FOG_GLSL, fogUniforms } from './fog.js';
 import { time, hdr, WINDOWS_GLSL } from './lights.js';
-import { RIVER, SITES, BANK_Y } from './river.js';
+import { RIVER, BANK_Y } from './river.js';
+import { SAIGON } from '../data/saigon.js';
 import { lerp } from '../util.js';
 
 /* =====================================================================
-   The five stops, each modelled from a handful of parameters:
+   The landmarks, each modelled from a handful of parameters and stood on
+   its real place on the map:
    Phú Mỹ Bridge · Bến Nhà Rồng · Bitexco · Ba Son Bridge · Landmark 81.
    Local frames: buildings face the river along +z; bridges cross it
    along +x, from the left bank to the right.
@@ -445,17 +447,20 @@ function buildL81() {
   return { group: g, L };
 }
 
-/* ------------------------------------------------------------ placing them on the river */
-function placeAcross(obj, f) {
-  obj.position.set(f.x, 0, f.z);
-  obj.rotation.y = Math.atan2(-f.rz, f.rx);       /* local +x → the river's right */
+/* ------------------------------------------------------------ placing them on the map */
+function placeAcross(obj, s) {
+  /* local +x runs to the river's right, the Thủ Thiêm side */
+  const f = RIVER.frame(RIVER.dAt(s.x, s.z), {});
+  const flip = s.ax * f.rx + s.az * f.rz < 0 ? -1 : 1;
+  const ax = s.ax * flip, az = s.az * flip;
+  obj.position.set(s.x, 0, s.z);
+  obj.rotation.y = Math.atan2(-az, ax);
+  return { x: s.x, z: s.z, ax, az };
 }
-function placeOnBank(obj, d, setback) {
-  const f = RIVER.frame(d, {});
-  const lat = f.hw + setback;
-  obj.position.set(f.x + f.rx * lat, BANK_Y, f.z + f.rz * lat);
-  obj.rotation.y = Math.atan2(-f.rx, -f.rz);      /* local +z → facing the river */
-  return f;
+function placeFacingRiver(obj, s) {
+  const f = RIVER.frame(RIVER.dAt(s.x, s.z), {});
+  obj.position.set(s.x, BANK_Y, s.z);
+  obj.rotation.y = Math.atan2(f.x - s.x, f.z - s.z);      /* local +z → toward the water */
 }
 
 export function createLandmarks(scene, { lights }) {
@@ -466,54 +471,47 @@ export function createLandmarks(scene, { lights }) {
     b.group.updateMatrixWorld(true);
     for (const [x, y, z, c, s, k] of b.L) lights.addV(b.group.localToWorld(v.set(x, y, z)), c, s, k);
   };
+  const S = SAIGON.sites;
 
-  const fPM = RIVER.frame(SITES.phuMy, {});
-  const pm = buildPhuMy(fPM.hw);
-  placeAcross(pm.group, fPM);
+  const pm = buildPhuMy(S.phuMy.span / 2);
+  const axPM = placeAcross(pm.group, S.phuMy);
 
-  /* the wharf is drawn a little larger than life, so it can hold its chapter */
   const nr = buildNhaRong();
-  nr.group.scale.setScalar(1.5);
-  const fNR = placeOnBank(nr.group, SITES.nhaRong, 8);
+  nr.group.scale.setScalar(1.2);
+  placeFacingRiver(nr.group, S.nhaRong);
 
   const bx = buildBitexco();
-  const fBX = placeOnBank(bx.group, SITES.bitexco, 9);
+  placeFacingRiver(bx.group, S.bitexco);
 
-  const fBS = RIVER.frame(SITES.baSon, {});
-  const bs = buildBaSon(fBS.hw);
-  placeAcross(bs.group, fBS);
+  const bs = buildBaSon(S.baSon.span / 2);
+  const axBS = placeAcross(bs.group, S.baSon);
 
   const l81 = buildL81();
-  const fL = placeOnBank(l81.group, SITES.l81, 15);
+  l81.group.position.set(S.l81.x, BANK_Y, S.l81.z);
+  l81.group.rotation.y = -S.l81.bearing;
 
   for (const b of [pm, nr, bx, bs, l81]) { group.add(b.group); flush(b); }
 
   const toWorld = (obj, x, y, z) => obj.localToWorld(new THREE.Vector3(x, y, z));
   const sites = {
-    phuMy: { center: new THREE.Vector3(fPM.x, 4.6, fPM.z) },
+    phuMy: { center: new THREE.Vector3(S.phuMy.x, 4.6, S.phuMy.z) },
     nhaRong: { pos: nr.group.position.clone(), look: toWorld(nr.group, 0, 1.4, 0) },
     bitexco: { pos: bx.group.position.clone(), look: toWorld(bx.group, 0, 16, 0) },
-    baSon: { center: new THREE.Vector3(fBS.x, 2.8, fBS.z), pylonTop: toWorld(bs.group, bs.px + bs.lean, bs.PH - 0.4, 0) },
-    l81: {
-      pos: l81.group.position.clone(),
-      toRiver: new THREE.Vector3(-fL.rx, 0, -fL.rz),
-      along: new THREE.Vector3(fL.tx, 0, fL.tz),
-    },
+    baSon: { center: new THREE.Vector3(S.baSon.x, 2.8, S.baSon.z), pylonTop: toWorld(bs.group, bs.px + bs.lean, bs.PH - 0.4, 0) },
+    l81: { pos: l81.group.position.clone() },
   };
 
-  /* keep the generated city off the landmarks and the bridge approaches */
+  /* the map's own footprints of these buildings make way for the models */
   const exclusions = {
     circles: [
-      { x: nr.group.position.x, z: nr.group.position.z, r: 13 },
-      { x: bx.group.position.x, z: bx.group.position.z, r: 6.5 },
-      { x: l81.group.position.x, z: l81.group.position.z, r: 9 },
-      /* the climb: a clear column of air between the tower and the river */
-      { x: l81.group.position.x - fL.rx * 12, z: l81.group.position.z - fL.rz * 12, r: 9 },
-      { x: sites.baSon.pylonTop.x, z: sites.baSon.pylonTop.z, r: 6 },
+      { x: S.nhaRong.x, z: S.nhaRong.z, r: 7 },
+      { x: S.bitexco.x, z: S.bitexco.z, r: 5.5 },
+      { x: S.l81.x, z: S.l81.z, r: 7.5 },
+      { x: sites.baSon.pylonTop.x, z: sites.baSon.pylonTop.z, r: 4 },
     ],
     corridors: [
-      { x: fPM.x, z: fPM.z, ax: fPM.rx, az: fPM.rz, half: pm.reach + 4, w: 4.5 },
-      { x: fBS.x, z: fBS.z, ax: fBS.rx, az: fBS.rz, half: fBS.hw + 50, w: 3.8 },
+      { x: axPM.x, z: axPM.z, ax: axPM.ax, az: axPM.az, half: pm.reach + 4, w: 3 },
+      { x: axBS.x, z: axBS.z, ax: axBS.ax, az: axBS.az, half: S.baSon.span / 2 + 50, w: 2.6 },
     ],
   };
 
